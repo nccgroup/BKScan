@@ -45,7 +45,7 @@ Usage:
 ./bkscan.sh -t <target_ip> [-P <target_port>] [-u <user>] [-p <password>] [--debug]
 ```
 
-### Target with NLA and valid credentials
+### Target with NLA enabled and valid credentials
 
 Against a vulnerable Windows 7 with NLA and valid credentials.
 
@@ -57,7 +57,7 @@ $ sudo ./bkscan.sh -t 192.168.119.141 -u user -p password
 [!] Target is VULNERABLE!!!
 ```
 
-Against a Windows 10 (non-vulnerable) or patched Windows 7 with NLA and valid credentials:
+Against a Windows 10 (non-vulnerable) or patched Windows 7 with NLA enabled and valid credentials:
 
 ```
 $ sudo ./bkscan.sh -t 192.168.119.133 -u user -p password
@@ -67,9 +67,19 @@ $ sudo ./bkscan.sh -t 192.168.119.133 -u user -p password
 [*] Target appears patched.
 ```
 
-### Target with NLA and non-valid credentials
+### Target with NLA enabled and non-valid credentials
 
-Against a Windows 7 (vulnerable or patched) with NLA and non-valid credentials:
+Against a Windows 7 (vulnerable or patched) which NLA enabled
+but that we are scanning with a client without NLA support:
+
+```
+$ sudo ./bkscan.sh -t 192.168.119.141
+[+] Targeting 192.168.119.141:3389...
+[+] No credential provided, won't support NLA
+[-] Connection reset by peer, NLA likely to be enabled. Detection failed.
+```
+
+Against a Windows 7 (vulnerable or patched) with NLA enabled and non-valid credentials:
 
 ```
 $ sudo ./bkscan.sh -t 192.168.119.141 -u user -p badpassword
@@ -78,7 +88,17 @@ $ sudo ./bkscan.sh -t 192.168.119.141 -u user -p badpassword
 [-] NLA enabled and access denied. Detection failed.
 ```
 
-Against a Windows 10 (non-vulnerable) with NLA and non-valid credentials:
+Against a Windows 7 (vulnerable or patched) with NLA enabled and valid credentials
+but user is not part of the "Remote Desktop Users" group:
+
+```
+$ sudo ./bkscan.sh -t 192.168.119.141 -u test -p password
+[+] Targeting 192.168.119.141:3389...
+[+] Using provided credentials, will support NLA
+[-] NLA enabled, credentials are valid but user has insufficient privileges. Detection failed.
+```
+
+Against a Windows 10 (non-vulnerable) with NLA enabled and non-valid credentials:
 
 ```
 $ sudo ./bkscan.sh -t 192.168.119.133 -u user -p badpassword
@@ -87,7 +107,7 @@ $ sudo ./bkscan.sh -t 192.168.119.133 -u user -p badpassword
 [-] NLA enabled and can't authenticate using provided credentials. Detection failed.
 ```
 
-### Target with no NLA
+### Target with NLA disabled
 
 Against a vulnerable Windows XP (no NLA support):
 
@@ -107,7 +127,7 @@ Against a Windows 7 with RDP disabled:
 $ sudo ./bkscan.sh -t 192.168.119.142
 [+] Targeting 192.168.119.142:3389...
 [+] No credential provided, won't support NLA
-[-] Can't connect properly, check IP address and port
+[-] Can't connect properly, check IP address and port.
 ```
 
 # Thanks

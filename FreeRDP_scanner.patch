@@ -820,7 +820,7 @@ diff '--exclude=build' -Naur FreeRDP_original/include/freerdp/settings.h FreeRDP
  typedef struct rdp_settings rdpSettings;
 diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/nego.c FreeRDP_scanner/libfreerdp/core/nego.c
 --- FreeRDP_original/libfreerdp/core/nego.c	2019-06-05 08:59:18.857020562 +0100
-+++ FreeRDP_scanner/libfreerdp/core/nego.c	2019-06-11 09:27:58.421242206 +0100
++++ FreeRDP_scanner/libfreerdp/core/nego.c	2019-06-14 16:28:36.936425542 +0100
 @@ -190,8 +190,12 @@
  
  			if (nego->state == NEGO_STATE_FAIL)
@@ -829,7 +829,7 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/nego.c FreeRDP_sca
 +				if (freerdp_get_last_error(nego->transport->context) == FREERDP_ERROR_SUCCESS) {
  					WLog_ERR(TAG, "Protocol Security Negotiation Failure");
 +					if (settings->cve_2019_0708) {
-+						printf("[-] Can't connect properly, check IP address and port\n");
++						printf("[-] Can't connect properly, check IP address and port.\n");
 +					}
 +				}
  
@@ -837,13 +837,19 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/nego.c FreeRDP_sca
  				return FALSE;
 diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scanner/libfreerdp/core/rdp.c
 --- FreeRDP_original/libfreerdp/core/rdp.c	2019-06-05 08:59:36.201112153 +0100
-+++ FreeRDP_scanner/libfreerdp/core/rdp.c	2019-06-10 09:53:02.972558646 +0100
-@@ -402,6 +402,13 @@
++++ FreeRDP_scanner/libfreerdp/core/rdp.c	2019-06-14 17:30:15.168822534 +0100
+@@ -401,7 +401,18 @@
+ 		freerdp_abort_connect(rdp->instance);
  		EventArgsInit(&e, "freerdp");
  		e.code = 0;
- 		PubSub_OnTerminate(context->pubSub, context, &e);
-+		
+-		PubSub_OnTerminate(context->pubSub, context, &e);
++		PubSub_OnTerminate(context->pubSub, context, &e);		
 +
++		// If NLA is enabled on the server, we may receive a "Set Error Info Data PDU"
++		// with ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES specified if our user is not in the Remote Desktop Group,
++		// and a DisconnectProviderUltimatum will also be sent to end the connection. 
++		// It should be safe to exit here as we would have exited anyway when receiving the "Set Error Info Data PDU"
++		// if the provided credentials are valid but the user is not in the "Remote Desktop Users" Group.
 +		if (rdp->settings->cve_2019_0708) {
 +			printf("[!] Target is VULNERABLE!!!\n");
 +			exit(0);
@@ -852,7 +858,18 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scan
  		return TRUE;
  	}
  
-@@ -1397,6 +1404,9 @@
+@@ -984,6 +995,10 @@
+ 				WLog_ERR(TAG, "DATA_PDU_TYPE_SET_ERROR_INFO - rdp_recv_set_error_info_data_pdu() failed");
+ 				goto out_fail;
+ 			}
++			if (rdp->settings->cve_2019_0708 && rdp->errorInfo == ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES) {
++				printf("[-] NLA enabled, credentials are valid but user has insufficient privileges. Detection failed.\n");
++				exit(0);
++			}
+ 
+ 			break;
+ 
+@@ -1397,6 +1412,9 @@
  				if (nla_recv_pdu(rdp->nla, s) < 1)
  				{
  					WLog_ERR(TAG, "rdp_recv_callback: CONNECTION_STATE_NLA - nla_recv_pdu() fail");
@@ -864,7 +881,7 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scan
  			}
 diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/transport.c FreeRDP_scanner/libfreerdp/core/transport.c
 --- FreeRDP_original/libfreerdp/core/transport.c	2019-06-05 08:59:18.873020647 +0100
-+++ FreeRDP_scanner/libfreerdp/core/transport.c	2019-06-10 10:10:17.869934775 +0100
++++ FreeRDP_scanner/libfreerdp/core/transport.c	2019-06-14 17:30:35.480844322 +0100
 @@ -165,6 +165,9 @@
  					{
  						WLog_Print(transport->log, WLOG_ERROR, "%s: ACCESS DENIED", __FUNCTION__);
@@ -875,3 +892,17 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/transport.c FreeRD
  					}
  				}
  				break;
+@@ -574,6 +577,13 @@
+ 				}
+ 
+ 				WLog_ERR_BIO(transport, "BIO_read", transport->frontBio);
++				// errno == 32 indicates a broken pipe (i.e. wrong IP address or port) and we received a RST/ACK
++				// errno == 104 indicates a connection reset by peer and we received ACK, RST/ACK
++				if (transport->settings->cve_2019_0708 && ERR_peek_error() == 0 && errno == 104)
++				{
++					printf("[-] Connection reset by peer, NLA likely to be enabled. Detection failed.\n");
++					exit(0);
++				}
+ 				transport->layer = TRANSPORT_LAYER_CLOSED;
+ 				return -1;
+ 			}
