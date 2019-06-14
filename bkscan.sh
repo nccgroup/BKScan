@@ -92,5 +92,5 @@ else
       --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
       --volume="$HOME/.Xauthority:$HOME/.Xauthority" \
       bkscan \
-      xfreerdp /cve-2019-0708 /cert-ignore /v:${TARGET_IP}:${TARGET_PORT} ${DEBUG}
+      xfreerdp /cve-2019-0708 /cert-ignore /v:${TARGET_IP}:${TARGET_PORT} -sec-nla /u:"" ${DEBUG}
 fi
