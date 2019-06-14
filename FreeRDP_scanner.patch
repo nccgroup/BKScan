@@ -838,11 +838,16 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/nego.c FreeRDP_sca
 diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scanner/libfreerdp/core/rdp.c
 --- FreeRDP_original/libfreerdp/core/rdp.c	2019-06-05 08:59:36.201112153 +0100
 +++ FreeRDP_scanner/libfreerdp/core/rdp.c	2019-06-10 09:53:02.972558646 +0100
-@@ -402,6 +402,13 @@
+@@ -402,6 +402,18 @@
  		EventArgsInit(&e, "freerdp");
  		e.code = 0;
  		PubSub_OnTerminate(context->pubSub, context, &e);
 +		
++
++               if (rdp->errorInfo == ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES) {
++                       printf("[!] User is not in Remote Desktop Users Group.\n"); 
++                       exit(0);
++               }
 +
 +		if (rdp->settings->cve_2019_0708) {
 +			printf("[!] Target is VULNERABLE!!!\n");
