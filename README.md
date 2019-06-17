@@ -47,7 +47,7 @@ Usage:
 
 ### Target with NLA enabled and valid credentials
 
-Against a vulnerable Windows 7 with NLA and valid credentials.
+Against a vulnerable Windows 7 with NLA enabled and valid credentials.
 
 ```
 $ sudo ./bkscan.sh -t 192.168.119.141 -u user -p password
@@ -79,15 +79,6 @@ $ sudo ./bkscan.sh -t 192.168.119.141
 [-] Connection reset by peer, NLA likely to be enabled. Detection failed.
 ```
 
-Against a Windows 7 (vulnerable or patched) with NLA enabled and non-valid credentials:
-
-```
-$ sudo ./bkscan.sh -t 192.168.119.141 -u user -p badpassword
-[+] Targeting 192.168.119.141:3389...
-[+] Using provided credentials, will support NLA
-[-] NLA enabled and access denied. Detection failed.
-```
-
 Against a Windows 7 (vulnerable or patched) with NLA enabled and valid credentials
 but user is not part of the "Remote Desktop Users" group:
 
@@ -98,14 +89,26 @@ $ sudo ./bkscan.sh -t 192.168.119.141 -u test -p password
 [-] NLA enabled, credentials are valid but user has insufficient privileges. Detection failed.
 ```
 
+Against a Windows 7 (vulnerable or patched) with NLA enabled and non-valid credentials:
+
+```
+$ sudo ./bkscan.sh -t 192.168.119.141 -u user -p badpassword
+[+] Targeting 192.168.119.141:3389...
+[+] Using provided credentials, will support NLA
+[-] NLA enabled and access denied. Detection failed.
+```
+
 Against a Windows 10 (non-vulnerable) with NLA enabled and non-valid credentials:
 
 ```
 $ sudo ./bkscan.sh -t 192.168.119.133 -u user -p badpassword
 [+] Targeting 192.168.119.133:3389...
 [+] Using provided credentials, will support NLA
-[-] NLA enabled and can't authenticate using provided credentials. Detection failed.
+[-][-] NLA enabled and logon failure. Detection failed.
 ```
+
+Note: the difference in output between Windows 7 and Windows 10 is likely due to the Windows CredSSP versions
+and your output may differ.
 
 ### Target with NLA disabled
 
@@ -119,9 +122,9 @@ $ sudo ./bkscan.sh -t 192.168.119.137
 [!] Target is VULNERABLE!!!
 ```
 
-### Target without RDP enabled
+### Target without RDP disabled
 
-Against a Windows 7 with RDP disabled:
+Against a Windows 7 with RDP disabled or blocked port:
 
 ```
 $ sudo ./bkscan.sh -t 192.168.119.142
@@ -139,6 +142,10 @@ similarly to their
 been ported to FreeRDP to support NLA.
 
 Thank you to mi2428 for releasing a script to run FreeRDP in Docker, see [here](https://github.com/mi2428/docker-xfreerdp).
+
+Also thank you to the following people for contributing:
+
+* [nikallass](https://twitter.com/is_n3ws)
 
 # Problems?
 

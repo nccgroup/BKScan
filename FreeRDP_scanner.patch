@@ -820,7 +820,7 @@ diff '--exclude=build' -Naur FreeRDP_original/include/freerdp/settings.h FreeRDP
  typedef struct rdp_settings rdpSettings;
 diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/nego.c FreeRDP_scanner/libfreerdp/core/nego.c
 --- FreeRDP_original/libfreerdp/core/nego.c	2019-06-05 08:59:18.857020562 +0100
-+++ FreeRDP_scanner/libfreerdp/core/nego.c	2019-06-14 16:28:36.936425542 +0100
++++ FreeRDP_scanner/libfreerdp/core/nego.c	2019-06-17 09:51:55.967475539 +0100
 @@ -190,8 +190,12 @@
  
  			if (nego->state == NEGO_STATE_FAIL)
@@ -837,7 +837,7 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/nego.c FreeRDP_sca
  				return FALSE;
 diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scanner/libfreerdp/core/rdp.c
 --- FreeRDP_original/libfreerdp/core/rdp.c	2019-06-05 08:59:36.201112153 +0100
-+++ FreeRDP_scanner/libfreerdp/core/rdp.c	2019-06-14 17:30:15.168822534 +0100
++++ FreeRDP_scanner/libfreerdp/core/rdp.c	2019-06-17 09:34:01.727674988 +0100
 @@ -401,7 +401,18 @@
  		freerdp_abort_connect(rdp->instance);
  		EventArgsInit(&e, "freerdp");
@@ -846,7 +846,7 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scan
 +		PubSub_OnTerminate(context->pubSub, context, &e);		
 +
 +		// If NLA is enabled on the server, we may receive a "Set Error Info Data PDU"
-+		// with ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES specified if our user is not in the Remote Desktop Group,
++		// with ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES specified if our user is not in the "Remote Desktop Users" Group,
 +		// and a DisconnectProviderUltimatum will also be sent to end the connection. 
 +		// It should be safe to exit here as we would have exited anyway when receiving the "Set Error Info Data PDU"
 +		// if the provided credentials are valid but the user is not in the "Remote Desktop Users" Group.
@@ -869,16 +869,33 @@ diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/rdp.c FreeRDP_scan
  
  			break;
  
-@@ -1397,6 +1412,9 @@
+@@ -1397,6 +1412,13 @@
  				if (nla_recv_pdu(rdp->nla, s) < 1)
  				{
  					WLog_ERR(TAG, "rdp_recv_callback: CONNECTION_STATE_NLA - nla_recv_pdu() fail");
 +					if (rdp->settings->cve_2019_0708) {
-+						printf("[-] NLA enabled and can't authenticate using provided credentials. Detection failed.\n");
++						if (rdp->context->LastError == FREERDP_ERROR_CONNECT_LOGON_FAILURE) {
++							printf("[-] NLA enabled and logon failure. Detection failed.\n");
++						} else {
++							printf("[-] Unexpected error. Please report to author. Detection likely failed.\n");
++						}
 +					}
  					return -1;
  				}
  			}
+diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/tcp.c FreeRDP_scanner/libfreerdp/core/tcp.c
+--- FreeRDP_original/libfreerdp/core/tcp.c	2019-06-05 08:59:18.869020626 +0100
++++ FreeRDP_scanner/libfreerdp/core/tcp.c	2019-06-17 09:48:53.217317073 +0100
+@@ -1179,6 +1179,9 @@
+ 					freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
+ 
+ 				WLog_ERR(TAG, "failed to connect to %s", hostname);
++				if (settings->cve_2019_0708) {
++					printf("[-] Can't connect properly, check IP address and port.\n");
++				}
+ 				return -1;
+ 			}
+ 
 diff '--exclude=build' -Naur FreeRDP_original/libfreerdp/core/transport.c FreeRDP_scanner/libfreerdp/core/transport.c
 --- FreeRDP_original/libfreerdp/core/transport.c	2019-06-05 08:59:18.873020647 +0100
 +++ FreeRDP_scanner/libfreerdp/core/transport.c	2019-06-14 17:30:35.480844322 +0100
