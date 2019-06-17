@@ -104,7 +104,7 @@ Against a Windows 10 (non-vulnerable) with NLA enabled and non-valid credentials
 $ sudo ./bkscan.sh -t 192.168.119.133 -u user -p badpassword
 [+] Targeting 192.168.119.133:3389...
 [+] Using provided credentials, will support NLA
-[-][-] NLA enabled and logon failure. Detection failed.
+[-] NLA enabled and logon failure. Detection failed.
 ```
 
 Note: the difference in output between Windows 7 and Windows 10 is likely due to the Windows CredSSP versions
