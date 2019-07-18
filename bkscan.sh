@@ -66,15 +66,31 @@ if [[ ! -z $RDP_USER && ! -z $RDP_PASSWORD ]]
 then
     echo [+] Using provided credentials, will support NLA
     docker run -it --rm --privileged \
-      -e DISPLAY=$DISPLAY \
-      -v /tmp/.X11-unix:/tmp/.X11-unix \
+      --user=$USER \
+      --env="DISPLAY" \
+      --workdir="/home/$USER" \
+      --volume="/home/$USER:/home/$USER" \
+      --volume="/etc/group:/etc/group:ro" \
+      --volume="/etc/passwd:/etc/passwd:ro" \
+      --volume="/etc/shadow:/etc/shadow:ro" \
+      --volume="/etc/sudoers.d:/etc/sudoers.d:ro" \
+      --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+      --volume="$HOME/.Xauthority:$HOME/.Xauthority" \
       bkscan \
       xfreerdp /cve-2019-0708 /cert-ignore /v:${TARGET_IP}:${TARGET_PORT} /u:${RDP_USER} /p:${RDP_PASSWORD} ${DEBUG}
 else
     echo [+] No credential provided, won\'t support NLA
     docker run -it --rm --privileged \
-      -e DISPLAY=$DISPLAY \
-      -v /tmp/.X11-unix:/tmp/.X11-unix \
+      --user=$USER \
+      --env="DISPLAY" \
+      --workdir="/home/$USER" \
+      --volume="/home/$USER:/home/$USER" \
+      --volume="/etc/group:/etc/group:ro" \
+      --volume="/etc/passwd:/etc/passwd:ro" \
+      --volume="/etc/shadow:/etc/shadow:ro" \
+      --volume="/etc/sudoers.d:/etc/sudoers.d:ro" \
+      --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+      --volume="$HOME/.Xauthority:$HOME/.Xauthority" \
       bkscan \
       xfreerdp /cve-2019-0708 /cert-ignore /v:${TARGET_IP}:${TARGET_PORT} ${DEBUG} -sec-nla
 fi
